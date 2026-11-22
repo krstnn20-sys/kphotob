@@ -4,12 +4,7 @@
 import { useEffect, useState } from "react";
 import { MAX_COPIES, MIN_COPIES } from "@/lib/copies";
 import {
-  PAPER_PRESETS,
-  adapterFor,
-  inspectPrinters,
-  type PaperPreset,
-  type PrintMethod,
-  type PrinterStatus,
+  sharePrintAdapter,
   validatePrintCopies,
 } from "@/lib/print";
 
@@ -20,45 +15,12 @@ type Props = {
 
 export function PrintDialog({ imageUrl, onClose }: Props) {
   const [copiesText, setCopiesText] = useState("1");
-  const [method, setMethod] = useState<PrintMethod>("browser");
-  const [paperPreset, setPaperPreset] = useState<PaperPreset>("thermal-80");
-  const [statuses, setStatuses] = useState<PrinterStatus[]>([
-    {
-      method: "browser",
-      label: "Browser / system printer",
-      available: true,
-      detail: "Opens your operating system print dialog.",
-    },
-  ]);
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
   const [shareFile, setShareFile] = useState<File | null>(null);
   const [preparing, setPreparing] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
 
   const parsed = validatePrintCopies(copiesText);
-  const selected = statuses.find((item) => item.method === method);
-  const paper =
-    PAPER_PRESETS.find((item) => item.id === paperPreset) ??
-    PAPER_PRESETS[0];
-
-  useEffect(() => {
-    let active = true;
-
-    inspectPrinters().then((next) => {
-      if (!active) return;
-      setStatuses(next);
-
-      if (
-        next.some((item) => item.method === "share" && item.available)
-      ) {
-        setMethod("share");
-      }
-    });
-
-    return () => {
-      active = false;
-    };
-  }, []);
 
   useEffect(() => {
     let active = true;
@@ -66,13 +28,10 @@ export function PrintDialog({ imageUrl, onClose }: Props) {
     async function prepareImage() {
       setPreparing(true);
       setShareFile(null);
-      setMessage("");
 
       try {
         const response = await fetch(imageUrl);
-        if (!response.ok) {
-          throw new Error("The photo strip could not be loaded.");
-        }
+        if (!response.ok) throw new Error("Photo strip could not be loaded.");
 
         const blob = await response.blob();
         const file = new File(
@@ -84,9 +43,7 @@ export function PrintDialog({ imageUrl, onClose }: Props) {
         if (active) setShareFile(file);
       } catch {
         if (active) {
-          setMessage(
-            "Could not prepare the photo strip for sharing. Try browser printing instead.",
-          );
+          setMessage("Could not prepare photo strip. Please try again.");
         }
       } finally {
         if (active) setPreparing(false);
@@ -101,34 +58,25 @@ export function PrintDialog({ imageUrl, onClose }: Props) {
   }, [imageUrl]);
 
   async function onPrint() {
-    if (!parsed.ok || busy) return;
-
-    if (method === "share" && !shareFile) {
-      setMessage("The photo strip is not ready yet. Please wait.");
-      return;
-    }
+    if (!shareFile || busy) return;
 
     setBusy(true);
     setMessage("");
 
     try {
-      const result = await adapterFor(method).print({
+      const result = await sharePrintAdapter.print({
         imageUrl,
-        shareFile: shareFile ?? undefined,
-        copies: parsed.copies,
-        paperWidthMm: paper.widthMm,
-        paperPreset,
-        grayscale:
-          paperPreset === "thermal-54" ||
-          paperPreset === "thermal-80",
+        shareFile,
+        copies: parsed.ok ? parsed.copies : 1,
+        paperWidthMm: 80,
+        grayscale: true,
+        paperPreset: "thermal-80",
       });
 
       setMessage(result.message);
     } catch (error) {
       setMessage(
-        error instanceof Error
-          ? error.message
-          : "Something went wrong while printing.",
+        error instanceof Error ? error.message : "Printing failed.",
       );
     } finally {
       setBusy(false);
@@ -152,8 +100,7 @@ export function PrintDialog({ imageUrl, onClose }: Props) {
         </p>
 
         <p className="export-modal-hint">
-          For iPad printing, select iPad / BR RawPrinter, then choose
-          BR RawPrinter from the Share Sheet.
+          Send your photo strip to BR RawPrinter to print.
         </p>
 
         <img
@@ -162,48 +109,8 @@ export function PrintDialog({ imageUrl, onClose }: Props) {
           className="export-modal-image"
         />
 
-        <label className="control-label" htmlFor="print-method">
-          Printing method
-        </label>
-
-        <div className="segmented print-method-row">
-          {statuses.map((item) => (
-            <button
-              key={item.method}
-              type="button"
-              className={method === item.method ? "selected" : ""}
-              onClick={() => setMethod(item.method)}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-
-        <p className="soft-note" role="status">
-          {selected?.detail}
-        </p>
-
-        <label className="control-label spaced" htmlFor="paper-preset">
-          Paper
-        </label>
-
-        <div className="segmented print-method-row">
-          {PAPER_PRESETS.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={paperPreset === item.id ? "selected" : ""}
-              onClick={() => setPaperPreset(item.id)}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-
         <label className="control-label spaced" htmlFor="copies">
-          {method === "share"
-            ? "Copies (set in BR RawPrinter)"
-            : "Copies"}
+          Copies
         </label>
 
         <div className="copy-stepper">
@@ -245,14 +152,16 @@ export function PrintDialog({ imageUrl, onClose }: Props) {
         </div>
 
         <p className="soft-note">
-          {method === "share"
-            ? "Set the actual number of copies inside BR RawPrinter."
-            : parsed.ok
-              ? `${parsed.copies} cop${parsed.copies === 1 ? "y" : "ies"} selected`
-              : parsed.error}
+          {parsed.ok
+            ? `${parsed.copies} cop${parsed.copies === 1 ? "y" : "ies"} selected. Set the same number in BR RawPrinter.`
+            : parsed.error}
         </p>
 
-        {method === "share" && preparing && (
+        <p className="soft-note">
+          Select 80 mm paper in BR RawPrinter.
+        </p>
+
+        {preparing && (
           <p className="soft-note" role="status">
             Preparing photo strip...
           </p>
@@ -269,19 +178,9 @@ export function PrintDialog({ imageUrl, onClose }: Props) {
             type="button"
             className="primary-button full"
             onClick={onPrint}
-            disabled={
-              busy ||
-              !parsed.ok ||
-              (method === "share" && (!shareFile || preparing))
-            }
+            disabled={busy || preparing || !shareFile}
           >
-            {preparing && method === "share"
-              ? "Preparing..."
-              : busy
-                ? "Opening..."
-                : method === "share"
-                  ? "Share to Printer"
-                  : "Print"}
+            {preparing ? "Preparing..." : busy ? "Opening..." : "PRINT"}
           </button>
 
           <button
