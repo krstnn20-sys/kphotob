@@ -1,8 +1,10 @@
+
 import { MAX_COPIES, MIN_COPIES, parseCopies } from "./copies";
 
-const PRINT_BRIDGE_URL = process.env.NEXT_PUBLIC_PRINT_BRIDGE_URL || "http://127.0.0.1:4173";
+const PRINT_BRIDGE_URL =
+  process.env.NEXT_PUBLIC_PRINT_BRIDGE_URL || "http://127.0.0.1:4173";
 
-export type PrintMethod = "browser" | "bridge" | "direct";
+export type PrintMethod = "browser" | "bridge" | "direct" | "share";
 
 export type PrinterStatus = {
   method: PrintMethod;
@@ -11,7 +13,12 @@ export type PrinterStatus = {
   detail: string;
 };
 
-export type PaperPreset = "fit" | "photo" | "letter" | "thermal-54" | "thermal-80";
+export type PaperPreset =
+  | "fit"
+  | "photo"
+  | "letter"
+  | "thermal-54"
+  | "thermal-80";
 
 export type PrintJob = {
   imageUrl: string;
@@ -19,9 +26,14 @@ export type PrintJob = {
   paperWidthMm: number;
   grayscale: boolean;
   paperPreset?: PaperPreset;
+  shareFile?: File;
 };
 
-export const PAPER_PRESETS: { id: PaperPreset; label: string; widthMm: number }[] = [
+export const PAPER_PRESETS: {
+  id: PaperPreset;
+  label: string;
+  widthMm: number;
+}[] = [
   { id: "fit", label: "Fit page", widthMm: 0 },
   { id: "photo", label: "4×6 in", widthMm: 102 },
   { id: "letter", label: "Letter", widthMm: 216 },
@@ -59,7 +71,10 @@ export interface PrinterAdapter {
 export function validatePrintCopies(value: string | number) {
   const copies = parseCopies(value);
   if (copies === null) {
-    return { ok: false as const, error: `Enter a whole number from ${MIN_COPIES} to ${MAX_COPIES}.` };
+    return {
+      ok: false as const,
+      error: `Enter a whole number from ${MIN_COPIES} to ${MAX_COPIES}.`,
+    };
   }
   return { ok: true as const, copies };
 }
@@ -69,7 +84,11 @@ export async function waitForImage(image: HTMLImageElement) {
   if (image.complete) throw new Error("The print preview image failed to load.");
   await new Promise<void>((resolve, reject) => {
     image.addEventListener("load", () => resolve(), { once: true });
-    image.addEventListener("error", () => reject(new Error("The print preview image failed to load.")), { once: true });
+    image.addEventListener(
+      "error",
+      () => reject(new Error("The print preview image failed to load.")),
+      { once: true },
+    );
   });
 }
 
@@ -77,8 +96,7 @@ function loadPrintImage(image: HTMLImageElement, src: string) {
   return new Promise<void>((resolve, reject) => {
     let settled = false;
     const succeed = () => {
-      if (settled) return;
-      if (image.naturalWidth <= 0) return;
+      if (settled || image.naturalWidth <= 0) return;
       settled = true;
       resolve();
     };
@@ -113,7 +131,7 @@ async function openPrintFrame() {
 
   document.body.appendChild(frame);
   await new Promise<void>((resolve) => {
-    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    requestAnimationFrame(() => requestAnimationFrame(resolve));
   });
 
   const doc = frame.contentDocument;
@@ -133,16 +151,17 @@ export const browserPrintAdapter: PrinterAdapter = {
       method: "browser",
       label: "Browser / system printer",
       available: typeof window !== "undefined" && typeof window.print === "function",
-      detail: "Opens your operating system print dialog. Choose the printer and confirm copies there.",
+      detail: "Opens your operating system print dialog.",
     };
   },
   async print(job) {
     const copies = validatePrintCopies(job.copies);
     if (!copies.ok) return { submitted: false, message: copies.error };
+
     if (typeof window.print !== "function") {
       return {
         submitted: false,
-        message: "This browser does not provide a print dialog. Download the strip and print it from another device, or from your phone’s Share / Print menu.",
+        message: "This browser does not provide a print dialog.",
       };
     }
 
@@ -150,16 +169,23 @@ export const browserPrintAdapter: PrinterAdapter = {
     try {
       src = await asPrintableSrc(job.imageUrl);
     } catch (error) {
-      return { submitted: false, message: error instanceof Error ? error.message : "The print image could not be prepared." };
+      return {
+        submitted: false,
+        message: error instanceof Error ? error.message : "The print image could not be prepared.",
+      };
     }
 
     const preset = job.paperPreset ?? "fit";
     let frame: HTMLIFrameElement;
     let doc: Document;
+
     try {
       ({ frame, doc } = await openPrintFrame());
     } catch (error) {
-      return { submitted: false, message: error instanceof Error ? error.message : "The print frame could not be created." };
+      return {
+        submitted: false,
+        message: error instanceof Error ? error.message : "The print frame could not be created.",
+      };
     }
 
     try {
@@ -170,14 +196,7 @@ export const browserPrintAdapter: PrinterAdapter = {
         html, body { margin: 0; padding: 0; background: #fff; }
         .print-copy { page-break-after: always; break-after: page; display: flex; justify-content: center; align-items: flex-start; }
         .print-copy:last-child { page-break-after: auto; break-after: auto; }
-        img {
-          max-width: 100%;
-          max-height: calc(100vh - 16mm);
-          width: auto;
-          height: auto;
-          object-fit: contain;
-          display: block;
-        }
+        img { max-width: 100%; max-height: calc(100vh - 16mm); width: auto; height: auto; object-fit: contain; display: block; }
       `;
       doc.head.appendChild(style);
 
@@ -192,8 +211,7 @@ export const browserPrintAdapter: PrinterAdapter = {
         images.push(image);
       }
 
-      const first = images[0];
-      if (!first) {
+      if (!images[0]) {
         frame.remove();
         return { submitted: false, message: "The print preview image was missing." };
       }
@@ -213,13 +231,80 @@ export const browserPrintAdapter: PrinterAdapter = {
         frame.contentWindow?.print();
         window.setTimeout(finish, 120_000);
       });
+
       return {
         submitted: true,
-        message: `Print dialog opened for ${copies.copies} cop${copies.copies === 1 ? "y" : "ies"}. Choose a printer in the browser dialog. Websites cannot print silently, and opening the dialog does not confirm that paper came out.`,
+        message: `Print dialog opened for ${copies.copies} cop${copies.copies === 1 ? "y" : "ies"}.`,
       };
     } catch (error) {
       frame.remove();
-      return { submitted: false, message: error instanceof Error ? error.message : "Printing failed." };
+      return {
+        submitted: false,
+        message: error instanceof Error ? error.message : "Printing failed.",
+      };
+    }
+  },
+};
+
+export const sharePrintAdapter: PrinterAdapter = {
+  id: "share",
+  async inspect() {
+    const available =
+      typeof navigator !== "undefined" &&
+      typeof navigator.share === "function";
+
+    return {
+      method: "share",
+      label: "iPad / BR RawPrinter",
+      available,
+      detail: available
+        ? "Shares the prepared photo strip. Choose BR RawPrinter from the iPad Share Sheet."
+        : "File sharing is not available in this browser.",
+    };
+  },
+  async print(job) {
+    if (typeof navigator === "undefined" || typeof navigator.share !== "function") {
+      return {
+        submitted: false,
+        message: "Sharing is not supported in this browser.",
+      };
+    }
+
+    if (!job.shareFile) {
+      return {
+        submitted: false,
+        message: "The photo strip is still preparing. Please wait, then try again.",
+      };
+    }
+
+    try {
+      if (
+        typeof navigator.canShare === "function" &&
+        !navigator.canShare({ files: [job.shareFile] })
+      ) {
+        return {
+          submitted: false,
+          message: "This browser cannot share the prepared image file.",
+        };
+      }
+
+      await navigator.share({
+        files: [job.shareFile],
+        title: "KixClicks photo strip",
+      });
+
+      return {
+        submitted: true,
+        message: "Photo strip shared. Select BR RawPrinter and confirm printing in the app.",
+      };
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        return { submitted: false, message: "Sharing was cancelled." };
+      }
+      return {
+        submitted: false,
+        message: error instanceof Error ? error.message : "Could not share the photo strip.",
+      };
     }
   },
 };
@@ -227,27 +312,20 @@ export const browserPrintAdapter: PrinterAdapter = {
 export const directPrintAdapter: PrinterAdapter = {
   id: "direct",
   async inspect() {
-    const usb = "usb" in navigator;
-    const serial = "serial" in navigator;
-    if (!usb && !serial) {
-      return {
-        method: "direct",
-        label: "Direct USB / serial",
-        available: false,
-        detail: "This browser does not expose WebUSB or Web Serial, so a thermal printer cannot be addressed from the page.",
-      };
-    }
+    const usb = typeof navigator !== "undefined" && "usb" in navigator;
+    const serial = typeof navigator !== "undefined" && "serial" in navigator;
+
     return {
       method: "direct",
       label: "Direct USB / serial",
-      available: true,
-      detail: "A device picker can be shown, but no printer model is configured. KixClicks will not send unknown ESC/POS or vendor commands.",
+      available: usb || serial,
+      detail: "Direct USB / serial printing is not configured for this printer.",
     };
   },
   async print() {
     return {
       submitted: false,
-      message: "Direct thermal printing is not configured for a specific printer model. Use browser printing, or add a local print bridge on the computer attached to the printer.",
+      message: "Direct thermal printing is not configured. Use the iPad Share Sheet and BR RawPrinter.",
     };
   },
 };
@@ -256,7 +334,10 @@ export const localBridgeAdapter: PrinterAdapter = {
   id: "bridge",
   async inspect() {
     try {
-      const response = await fetch(`${PRINT_BRIDGE_URL}/health`, { method: "GET", cache: "no-store" });
+      const response = await fetch(`${PRINT_BRIDGE_URL}/health`, {
+        method: "GET",
+        cache: "no-store",
+      });
       if (!response.ok) {
         return {
           method: "bridge",
@@ -272,20 +353,21 @@ export const localBridgeAdapter: PrinterAdapter = {
         available: Boolean(payload.ok),
         detail: payload.printer
           ? `Bridge online for ${payload.printer}.`
-          : "RP30 bridge online. Select 80 mm paper, then send the job.",
+          : "Local print bridge online.",
       };
     } catch {
       return {
         method: "bridge",
         label: "Local print bridge",
         available: false,
-        detail: `No local bridge at ${PRINT_BRIDGE_URL}. Start the RP30 print bridge on this computer.`,
+        detail: `No local bridge at ${PRINT_BRIDGE_URL}.`,
       };
     }
   },
   async print(job) {
     const copies = validatePrintCopies(job.copies);
     if (!copies.ok) return { submitted: false, message: copies.error };
+
     try {
       const response = await fetch(`${PRINT_BRIDGE_URL}/print`, {
         method: "POST",
@@ -299,21 +381,36 @@ export const localBridgeAdapter: PrinterAdapter = {
       });
       const payload = (await response.json()) as { ok?: boolean; message?: string };
       if (!response.ok || !payload.ok) {
-        return { submitted: false, message: payload.message || "The local print bridge rejected the job." };
+        return {
+          submitted: false,
+          message: payload.message || "The local print bridge rejected the job.",
+        };
       }
-      return { submitted: true, message: payload.message || "The bridge accepted the job. Check the printer for physical output." };
+      return {
+        submitted: true,
+        message: payload.message || "The bridge accepted the job.",
+      };
     } catch {
-      return { submitted: false, message: "Could not reach the local print bridge." };
+      return {
+        submitted: false,
+        message: "Could not reach the local print bridge.",
+      };
     }
   },
 };
 
 export async function inspectPrinters(): Promise<PrinterStatus[]> {
-  return Promise.all([browserPrintAdapter.inspect(), localBridgeAdapter.inspect(), directPrintAdapter.inspect()]);
+  return Promise.all([
+    browserPrintAdapter.inspect(),
+    localBridgeAdapter.inspect(),
+    directPrintAdapter.inspect(),
+    sharePrintAdapter.inspect(),
+  ]);
 }
 
 export function adapterFor(method: PrintMethod): PrinterAdapter {
   if (method === "bridge") return localBridgeAdapter;
   if (method === "direct") return directPrintAdapter;
+  if (method === "share") return sharePrintAdapter;
   return browserPrintAdapter;
 }
