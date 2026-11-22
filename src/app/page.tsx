@@ -4,6 +4,10 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { PrintDialog } from "@/components/PrintDialog";
 import { composePhotoStrip, filterCss } from "@/lib/compose-strip";
+import {
+  loadBoothSession,
+  saveBoothSession,
+} from "@/lib/session-storage";
 
 const POSE_BREAK_MS = 5000;
 const FLASH_MS = 280;
@@ -221,6 +225,7 @@ async function savePhotoStripDesktop(blob: Blob, fileName: string, mimeType: str
 
 export default function Home() {
   const [stage, setStage] = useState<Stage>("welcome");
+  const [sessionReady, setSessionReady] = useState(false);
   const [layout, setLayout] = useState<LayoutId>(DEFAULT_LAYOUT);
   const [theme, setTheme] = useState<ThemeId>(DEFAULT_THEME);
   const [filter, setFilter] = useState<Filter>(DEFAULT_FILTER);
@@ -263,6 +268,116 @@ export default function Home() {
   const selectedLayout = layouts.find((item) => item.id === layout) ?? layouts[0];
   const selectedTheme = themes.find((item) => item.id === theme) ?? themes[0];
   const needed = selectedLayout.count;
+  
+useEffect(() => {
+  let active = true;
+
+  async function restoreSession() {
+    try {
+      const saved = await loadBoothSession();
+
+      if (!active) return;
+
+      if (saved) {
+        setLayout(saved.layout as LayoutId);
+        setTheme(saved.theme as ThemeId);
+        setFilter(saved.filter as Filter);
+        setPhotos(saved.photos);
+        setCaption(saved.caption);
+        setShowDate(saved.showDate);
+        setCountdown(saved.countdown);
+        countdownRef.current = saved.countdown;
+        setMirrorCamera(saved.mirrorCamera);
+        setStickers(saved.stickers);
+        setRetakeIndex(saved.retakeIndex);
+
+        const restoredStage: Stage =
+          saved.stage === "capture"
+            ? saved.photos.length > 0
+              ? "edit"
+              : "setup"
+            : saved.stage;
+
+        setStage(restoredStage);
+
+        if (restoredStage === "result") {
+          const restoredLayout =
+            layouts.find((item) => item.id === saved.layout) ?? layouts[0];
+
+          const restoredTheme =
+            themes.find((item) => item.id === saved.theme) ?? themes[0];
+
+          const composed = await composePhotoStrip({
+            photos: saved.photos,
+            needed: restoredLayout.count,
+            layout: restoredLayout.id,
+            theme: restoredTheme,
+            filter: saved.filter as Filter,
+            caption: saved.caption,
+            showDate: saved.showDate,
+            stickers: saved.stickers,
+            format: "png",
+          });
+
+          if (!active) return;
+
+          stripBlobRef.current = composed.blob;
+          setStripFileName(composed.fileName);
+          setStripPreviewUrl(URL.createObjectURL(composed.blob));
+        }
+      }
+    } catch (error) {
+      console.error("Could not restore Kix Clicks session:", error);
+    } finally {
+      if (active) setSessionReady(true);
+    }
+  }
+
+  void restoreSession();
+
+  return () => {
+    active = false;
+  };
+}, []);
+
+useEffect(() => {
+  if (!sessionReady) return;
+
+  if (stage === "welcome") {
+    return;
+  }
+
+  void saveBoothSession({
+    stage,
+    layout,
+    theme,
+    filter,
+    photos,
+    caption,
+    showDate,
+    countdown,
+    mirrorCamera,
+    stickers,
+    retakeIndex,
+    savedAt: Date.now(),
+  }).catch((error) => {
+    console.error("Could not save Kix Clicks session:", error);
+  });
+}, [
+  sessionReady,
+  stage,
+  layout,
+  theme,
+  filter,
+  photos,
+  caption,
+  showDate,
+  countdown,
+  mirrorCamera,
+  stickers,
+  retakeIndex,
+]);
+
 
   useEffect(() => () => streamRef.current?.getTracks().forEach((track) => track.stop()), []);
   useEffect(() => () => { if (exportPreview) URL.revokeObjectURL(exportPreview.url); }, [exportPreview]);
