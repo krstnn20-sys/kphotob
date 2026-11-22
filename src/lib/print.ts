@@ -131,11 +131,7 @@ async function openPrintFrame() {
 
   document.body.appendChild(frame);
   await new Promise<void>((resolve) => {
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      resolve();
-    });
-  });
+  setTimeout(resolve, 50);
 });
 
   const doc = frame.contentDocument;
