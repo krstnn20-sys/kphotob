@@ -1,6 +1,8 @@
+
 import type { Metadata, Viewport } from "next";
 import { Playfair_Display } from "next/font/google";
 import "./globals.css";
+import { ServiceWorkerRegister } from "@/components/ServiceWorkerRegister";
 
 const playfair = Playfair_Display({
   subsets: ["latin"],
@@ -9,7 +11,8 @@ const playfair = Playfair_Display({
 
 export const metadata: Metadata = {
   title: "KixClicks | Photobooth",
-  description: "Same moments, better frames. A private, browser-based photobooth.",
+  description:
+    "Same moments, better frames. A private, browser-based photobooth.",
   icons: {
     icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
   },
@@ -23,6 +26,11 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={playfair.variable}><body>{children}</body></html>
+    <html lang="en" className={playfair.variable}>
+      <body>
+        <ServiceWorkerRegister />
+        {children}
+      </body>
+    </html>
   );
 }
