@@ -20,6 +20,11 @@ export function PrintDialog({ imageUrl, onClose }: Props) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const leftPageRef = useRef(false);
+  const onCloseRef = useRef(onClose);
+
+useEffect(() => {
+  onCloseRef.current = onClose;
+}, [onClose]);
 
   const parsed = validatePrintCopies(copiesText);
 
@@ -59,35 +64,40 @@ export function PrintDialog({ imageUrl, onClose }: Props) {
   }, [imageUrl]);
 
   useEffect(() => {
-    function handleVisibilityChange() {
-      if (document.visibilityState === "hidden") {
-        leftPageRef.current = true;
-        return;
-      }
+  function markAway() {
+    leftPageRef.current = true;
+  }
 
-      if (leftPageRef.current) {
-        leftPageRef.current = false;
-        setBusy(false);
-        onClose();
-      }
+  function recoverAfterReturn() {
+    if (!leftPageRef.current) return;
+
+    leftPageRef.current = false;
+    setBusy(false);
+    onCloseRef.current();
+  }
+
+  function handleVisibilityChange() {
+    if (document.visibilityState === "hidden") {
+      markAway();
+    } else {
+      recoverAfterReturn();
     }
+  }
 
-    function handlePageShow() {
-      if (leftPageRef.current) {
-        leftPageRef.current = false;
-        setBusy(false);
-        onClose();
-      }
-    }
+  window.addEventListener("blur", markAway);
+  window.addEventListener("focus", recoverAfterReturn);
+  window.addEventListener("pagehide", markAway);
+  window.addEventListener("pageshow", recoverAfterReturn);
+  document.addEventListener("visibilitychange", handleVisibilityChange);
 
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    window.addEventListener("pageshow", handlePageShow);
-
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      window.removeEventListener("pageshow", handlePageShow);
-    };
-  }, [onClose]);
+  return () => {
+    window.removeEventListener("blur", markAway);
+    window.removeEventListener("focus", recoverAfterReturn);
+    window.removeEventListener("pagehide", markAway);
+    window.removeEventListener("pageshow", recoverAfterReturn);
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
+  };
+}, []);
 
   async function onPrint() {
     if (!shareFile || busy || !parsed.ok) return;
