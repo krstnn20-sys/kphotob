@@ -73,7 +73,7 @@ useEffect(() => {
 
     leftPageRef.current = false;
     setBusy(false);
-    onCloseRef.current();
+    window.location.reload();
   }
 
   function handleVisibilityChange() {
