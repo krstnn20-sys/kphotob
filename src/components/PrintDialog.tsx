@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MAX_COPIES, MIN_COPIES } from "@/lib/copies";
 import {
   sharePrintAdapter,
@@ -19,6 +19,7 @@ export function PrintDialog({ imageUrl, onClose }: Props) {
   const [preparing, setPreparing] = useState(true);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const leftPageRef = useRef(false);
 
   const parsed = validatePrintCopies(copiesText);
 
@@ -57,8 +58,39 @@ export function PrintDialog({ imageUrl, onClose }: Props) {
     };
   }, [imageUrl]);
 
+  useEffect(() => {
+    function handleVisibilityChange() {
+      if (document.visibilityState === "hidden") {
+        leftPageRef.current = true;
+        return;
+      }
+
+      if (leftPageRef.current) {
+        leftPageRef.current = false;
+        setBusy(false);
+        onClose();
+      }
+    }
+
+    function handlePageShow() {
+      if (leftPageRef.current) {
+        leftPageRef.current = false;
+        setBusy(false);
+        onClose();
+      }
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("pageshow", handlePageShow);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("pageshow", handlePageShow);
+    };
+  }, [onClose]);
+
   async function onPrint() {
-    if (!shareFile || busy) return;
+    if (!shareFile || busy || !parsed.ok) return;
 
     setBusy(true);
     setMessage("");
@@ -67,7 +99,7 @@ export function PrintDialog({ imageUrl, onClose }: Props) {
       const result = await sharePrintAdapter.print({
         imageUrl,
         shareFile,
-        copies: parsed.ok ? parsed.copies : 1,
+        copies: parsed.copies,
         paperWidthMm: 80,
         grayscale: true,
         paperPreset: "thermal-80",
@@ -178,7 +210,7 @@ export function PrintDialog({ imageUrl, onClose }: Props) {
             type="button"
             className="primary-button full"
             onClick={onPrint}
-            disabled={busy || preparing || !shareFile}
+            disabled={busy || preparing || !shareFile || !parsed.ok}
           >
             {preparing ? "Preparing..." : busy ? "Opening..." : "PRINT"}
           </button>
@@ -187,7 +219,6 @@ export function PrintDialog({ imageUrl, onClose }: Props) {
             type="button"
             className="secondary-button full"
             onClick={onClose}
-            disabled={busy}
           >
             Cancel
           </button>
