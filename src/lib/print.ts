@@ -190,7 +190,7 @@ export const sharePrintAdapter: PrinterAdapter = {
       if (typeof navigator.canShare === "function" && !navigator.canShare({ files: [job.shareFile] })) {
         return { submitted: false, message: "This browser cannot share the prepared image file." };
       }
-      await navigator.share({ files: [job.shareFile], title: "KixClicks photo strip" });
+      await navigator.share({ files: [job.shareFile] });
       return {
         submitted: true,
         message: "Photo strip shared. Select BR RawPrinter and confirm printing in the app.",
