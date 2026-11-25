@@ -3,6 +3,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { MAX_COPIES, MIN_COPIES } from "@/lib/copies";
+import { preparePrintRaster } from "@/lib/compose-strip";
 import {
   sharePrintAdapter,
   validatePrintCopies,
@@ -22,9 +23,9 @@ export function PrintDialog({ imageUrl, onClose }: Props) {
   const leftPageRef = useRef(false);
   const onCloseRef = useRef(onClose);
 
-useEffect(() => {
-  onCloseRef.current = onClose;
-}, [onClose]);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   const parsed = validatePrintCopies(copiesText);
 
@@ -37,13 +38,24 @@ useEffect(() => {
 
       try {
         const response = await fetch(imageUrl);
-        if (!response.ok) throw new Error("Photo strip could not be loaded.");
+        if (!response.ok) {
+          throw new Error("Photo strip could not be loaded.");
+        }
 
-        const blob = await response.blob();
+        const sourceBlob = await response.blob();
+
+        const raster = await preparePrintRaster(sourceBlob, {
+          maxWidth: Number.MAX_SAFE_INTEGER,
+          grayscale: true,
+        });
+
         const file = new File(
-          [blob],
+          [raster.blob],
           "kixclicks-photo-strip.png",
-          { type: blob.type || "image/png" },
+          {
+            type: "image/png",
+            lastModified: Date.now(),
+          },
         );
 
         if (active) setShareFile(file);
@@ -64,40 +76,43 @@ useEffect(() => {
   }, [imageUrl]);
 
   useEffect(() => {
-  function markAway() {
-    leftPageRef.current = true;
-  }
-
-  function recoverAfterReturn() {
-    if (!leftPageRef.current) return;
-
-    leftPageRef.current = false;
-    setBusy(false);
-    window.location.reload();
-  }
-
-  function handleVisibilityChange() {
-    if (document.visibilityState === "hidden") {
-      markAway();
-    } else {
-      recoverAfterReturn();
+    function markAway() {
+      leftPageRef.current = true;
     }
-  }
 
-  window.addEventListener("blur", markAway);
-  window.addEventListener("focus", recoverAfterReturn);
-  window.addEventListener("pagehide", markAway);
-  window.addEventListener("pageshow", recoverAfterReturn);
-  document.addEventListener("visibilitychange", handleVisibilityChange);
+    function recoverAfterReturn() {
+      if (!leftPageRef.current) return;
 
-  return () => {
-    window.removeEventListener("blur", markAway);
-    window.removeEventListener("focus", recoverAfterReturn);
-    window.removeEventListener("pagehide", markAway);
-    window.removeEventListener("pageshow", recoverAfterReturn);
-    document.removeEventListener("visibilitychange", handleVisibilityChange);
-  };
-}, []);
+      leftPageRef.current = false;
+      setBusy(false);
+      window.location.reload();
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === "hidden") {
+        markAway();
+      } else {
+        recoverAfterReturn();
+      }
+    }
+
+    window.addEventListener("blur", markAway);
+    window.addEventListener("focus", recoverAfterReturn);
+    window.addEventListener("pagehide", markAway);
+    window.addEventListener("pageshow", recoverAfterReturn);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("blur", markAway);
+      window.removeEventListener("focus", recoverAfterReturn);
+      window.removeEventListener("pagehide", markAway);
+      window.removeEventListener("pageshow", recoverAfterReturn);
+      document.removeEventListener(
+        "visibilitychange",
+        handleVisibilityChange,
+      );
+    };
+  }, []);
 
   async function onPrint() {
     if (!shareFile || busy || !parsed.ok) return;
